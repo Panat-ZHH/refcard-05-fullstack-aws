@@ -1,4 +1,4 @@
-# Prueft, dass das lokale Gesamtsystem (docker-compose-local) wirklich startet:
+# Prueft, dass das lokale Gesamtsystem (docker-compose-local) mit Podman wirklich startet:
 # Frontend + Backend + MariaDB + MinIO bauen, starten, gesund melden und End-to-End testen.
 name: Compose Smoke-Test (lokale Entwicklung)
 
@@ -15,9 +15,25 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: docker-compose-local
+        working-directory: refcard-05-fullstack-aws/docker-compose-local
     steps:
+      # gleiche Ordnerstruktur wie lokal: alle drei Repos nebeneinander
       - uses: actions/checkout@v4
+        with:
+          path: refcard-05-fullstack-aws
+      - uses: actions/checkout@v4
+        with:
+          repository: Panat-ZHH/refcard-05-be-springboot-businesstrips
+          path: refcard-05-be-springboot-businesstrips
+      - uses: actions/checkout@v4
+        with:
+          repository: Panat-ZHH/refcard-05-fe-react-vite
+          path: refcard-05-fe-react-vite
+
+      - name: podman-compose installieren
+        run: |
+          pipx install podman-compose
+          podman --version && podman-compose --version
 
       - name: Gesamtsystem starten (wie ein Teammitglied es tun wuerde)
         run: ./start.sh
@@ -38,8 +54,8 @@ jobs:
 
       - name: Logs bei Fehler
         if: failure()
-        run: docker compose logs --no-color --tail 200
+        run: podman-compose logs --tail 200
 
       - name: Aufraeumen
         if: always()
-        run: docker compose down -v
+        run: podman-compose down -v
