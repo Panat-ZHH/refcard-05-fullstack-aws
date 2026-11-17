@@ -1,6 +1,12 @@
 # RefCard05 – Full-Stack auf AWS (ECR, ECS, RDS, S3)
 
-**M324 DevOps · Bewertete Lernaufgabe · Panat Ruangsri ([@Panat-ZHH](https://github.com/Panat-ZHH))**
+**M324 DevOps · Bewertete Lernaufgabe**
+
+**Projektteam:** Panat Ruangsri ([@Panat-ZHH](https://github.com/Panat-ZHH)), Timo Eichenberger, Johan Stefanes
+
+> **Hinweis: Dies ist die Backup-Dokumentation.** Die Hauptdokumentation ist das PDF
+> [`docs/RefCard05_Dokumentation.pdf`](docs/RefCard05_Dokumentation.pdf). Dieses README enthält dieselben Inhalte
+> etwas ausführlicher und dient als Backup bzw. zum Nachschlagen direkt im Repository.
 
 BusinessTrips als vollständige Fullstack-Anwendung auf AWS (Academy Learner Lab, `us-east-1`):
 React/Vite-Frontend als nginx-Container und Spring-Boot-Backend als zwei **unabhängige ECS-Fargate-Services**,
