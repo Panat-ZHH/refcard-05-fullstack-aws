@@ -131,7 +131,7 @@ die Learner-Lab-Session abgelaufen ist oder eine Repository-Variable fehlt.
     { "name": "DB_PASSWORD", "valueFrom": "${DB_SECRET_ARN}:password::" }, …
   ]
   ```
-- Saubere Trennung über Spring-Profile: `default` (H2, Tests) · `mariadb` (RDS / lokal) · `s3` (Bilder in S3 / MinIO).
+- Saubere Trennung über Spring-Profile: `default` (H2, Tests) · `mariadb` (RDS / lokal) · `s3` (Bilder in S3 / lokal S3Mock).
 - Verbindung nachweisbar: `GET /actuator/health` → `components.db.status = UP` (`MariaDB`), `GET /v1/trips` liefert die Daten aus RDS;
   der Smoke-Test der Pipeline prüft das bei jedem Deployment.
 
@@ -222,7 +222,7 @@ OIDC und eigene IAM-Rollen sind im Learner Lab gesperrt. Deshalb:
 
 ## 5. Aufgabe 4 – Lokale Entwicklung mit Podman Compose
 
-Ordner [`docker-compose-local/`](docker-compose-local): Frontend + Backend + MariaDB + **MinIO** (S3-kompatibel → derselbe `S3ImageStorage`-Code wie auf AWS)
+Ordner [`docker-compose-local/`](docker-compose-local): Frontend + Backend + MariaDB + **S3Mock** (S3-kompatibel → derselbe `S3ImageStorage`-Code wie auf AWS; MinIO veröffentlicht keine freien Images mehr)
 + optional phpMyAdmin. Kein AWS-Zugang nötig.
 
 ```bash
@@ -244,10 +244,10 @@ cd refcard-05-fullstack-aws/docker-compose-local
 |---|---|
 | Frontend | http://localhost:3000 |
 | Backend | http://localhost:8080/v1/trips · Health: http://localhost:8080/actuator/health |
-| MinIO-Console (S3) | http://localhost:9001 |
+| S3 (Mock-API) | http://localhost:9090/biztrips-images-local |
 | phpMyAdmin | http://localhost:8082 (`podman-compose --profile tools up -d`) |
 
-- **Startreihenfolge über Healthchecks:** MariaDB healthy + MinIO healthy → `minio-init` legt den Bucket an → Backend healthy → Frontend.
+- **Startreihenfolge über Healthchecks:** MariaDB healthy + S3Mock healthy (Bucket wird beim Start angelegt) → Backend healthy → Frontend.
 - **Umgebungsvariablen:** `.env.example` → `.env` (Git-ignoriert): `DB_*`, `S3_*`, optional `BACKEND_CONTEXT`/`FRONTEND_CONTEXT` (andere Pfade), `FRONTEND_PORT`.
 - Frontend lokal: `VITE_API_BASE_URL=http://localhost:8080/` (Build-Arg); Backend erlaubt CORS für `http://localhost:3000`.
 - Release aus ECR lokal starten: `./use-ecr-images.sh 1.0.0`.
@@ -265,5 +265,19 @@ cd refcard-05-fullstack-aws/docker-compose-local
 
 ## 7. Bewertungsraster – wo ist was?
 
-<!--RUBRIC-->
+| Kriterium (Punkte) | Umsetzung | Nachweis |
+|---|---|---|
+| Frontend-Pipeline (3) | lint → Vitest → Vite-Build → Podman-Image → ECR → ECS → Smoke-Test, Job-Summary mit Testergebnissen, klare Fehlermeldungen | [FE ci-cd.yml](https://github.com/Panat-ZHH/refcard-05-fe-react-vite/blob/main/.github/workflows/ci-cd.yml), [FE Actions](https://github.com/Panat-ZHH/refcard-05-fe-react-vite/actions) |
+| Backend-Pipeline (3) | Maven verify (16 Tests) → Podman-Image (Multi-Stage) → ECR → ECS → Smoke-Test inkl. Versions- und DB-Check | [BE ci-cd.yml](https://github.com/Panat-ZHH/refcard-05-be-springboot-businesstrips/blob/main/.github/workflows/ci-cd.yml), [BE Actions](https://github.com/Panat-ZHH/refcard-05-be-springboot-businesstrips/actions) |
+| Versionierung (3) | SemVer-Tags `vX.Y.Z` → `X.Y.Z`, `X.Y`, `latest`, `sha-…`; Version in `/actuator/info`, `/version.json`, Footer zeigt beide | [Abschnitt 2](#versionierung-mit-git-tags-semver), ECR-Screenshots |
+| RDS über Secrets (3) | Profil `mariadb`, alle 5 Verbindungswerte aus Secrets Manager, Passwort nie im Klartext | [Abschnitt 3](#rds-mariadb--konfiguration-nur-über-secrets), Health-Screenshot |
+| S3 + Least Privilege (3) | `S3ImageStorage`, STS-Session-Policy nur auf Bucket/Prefix, Bucket-Policy, Fehlerfälle als 503 + Health | [Abschnitt 3](#iam-least-privilege-im-learner-lab), `verify.sh --iam` |
+| ECS Frontend (3) | Fargate, nginx-unprivileged, Health-Checks (Container + ALB), Limits, Circuit Breaker | [Abschnitt 4](#4-aufgabe-3--ecs-deployment-und-learner-lab-zugangsdaten) |
+| ECS Backend (3) | Fargate, readiness-Health-Check, JVM-Limits, Graceful Shutdown, Circuit Breaker | [Abschnitt 4](#4-aufgabe-3--ecs-deployment-und-learner-lab-zugangsdaten) |
+| Automatisches Redeploy (3) | jeder Push/Tag → neue Task-Def-Revision → Rolling Deployment → Smoke-Test prüft neue Version | Workflow-Summaries, ECS-Deployments |
+| Learner-Lab-Secrets (3) | 3 GitHub Secrets, keine Zugangsdaten im Code, Erneuerungsprozess + OIDC-Vergleich | [Abschnitt 4](#learner-lab-zugangsdaten-als-github-secrets) |
+| Lokale Entwicklung (3) | Podman Compose: FE + BE + MariaDB + S3Mock, Healthchecks/Startreihenfolge, `start.sh`, CI-getestet | [Abschnitt 5](#5-aufgabe-4--lokale-entwicklung-mit-podman-compose) |
+| Dokumentation (5) | dieses README + READMEs je Repo, Diagramme, Screenshots | – |
+| Nachvollziehbarkeit (3) | kleine, beschriebene Commits in allen 3 Repos, Workflow-Runs mit Summaries | Commit-Historien |
+
 
