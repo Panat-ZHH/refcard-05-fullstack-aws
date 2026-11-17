@@ -13,7 +13,7 @@ Datenbank auf **Amazon RDS (MariaDB)**, Bilder in **Amazon S3**. Jedes Repo hat 
 | [refcard-05-be-springboot-businesstrips](https://github.com/Panat-ZHH/refcard-05-be-springboot-businesstrips) | Backend (Spring Boot, RDS, S3) | [![BE](https://github.com/Panat-ZHH/refcard-05-be-springboot-businesstrips/actions/workflows/ci-cd.yml/badge.svg)](https://github.com/Panat-ZHH/refcard-05-be-springboot-businesstrips/actions) |
 | **dieses Repo** | AWS-Infrastruktur-Skripte, lokales Compose-Setup, Dokumentation | [![Compose](https://github.com/Panat-ZHH/refcard-05-fullstack-aws/actions/workflows/compose-smoke-test.yml/badge.svg)](https://github.com/Panat-ZHH/refcard-05-fullstack-aws/actions) |
 
-**Live:** http://biztrips-alb-1680845686.us-east-1.elb.amazonaws.com (läuft, solange die Learner-Lab-Session aktiv ist)
+**Live (Release `v1.0.0`):** http://biztrips-alb-1680845686.us-east-1.elb.amazonaws.com (erreichbar, solange das Learner Lab läuft)
 
 ---
 
@@ -94,7 +94,7 @@ flowchart LR
 
 | Job | Backend | Frontend |
 |---|---|---|
-| **build-test** | `./mvnw verify` (JDK 21, Maven-Cache), 20 Unit-/Integrationstests, Surefire-Reports als Artefakt | `npm ci`, ESLint, Vitest (7 Tests, JUnit-Report), `vite build` |
+| **build-test** | `./mvnw verify` (JDK 21, Maven-Cache), 16 Unit-/Integrationstests, Surefire-Reports als Artefakt | `npm ci`, ESLint, Vitest (7 Tests, JUnit-Report), `vite build` |
 | **image** | Multi-Stage `Dockerfile`: Maven/JDK 21 → JRE 21 alpine, non-root, HEALTHCHECK | Multi-Stage: Node 22 → `nginx-unprivileged`, `/healthz`, `/version.json` |
 | | gebaut und gepusht mit **Podman** (`podman build --format docker`, `podman push`) | `VITE_API_BASE_URL` = URL des Backend-Service als Build-Arg |
 | **deploy** | `.aws/task-definition.json` rendern → `amazon-ecs-render-task-definition` → `amazon-ecs-deploy-task-definition` (`wait-for-service-stability`) | gleich |
@@ -259,7 +259,62 @@ cd refcard-05-fullstack-aws/docker-compose-local
 
 ## 6. Nachweise (Screenshots)
 
-<!--SCREENSHOTS-->
+Alle Screenshots stammen vom 17.11.2026 (Release `v1.0.0`) und zeigen den Account `851725350838` / GitHub `Panat-ZHH`.
+
+### Ergebnis: App live auf AWS (Release 1.0.0)
+Frontend aus ECS (nginx), Trips aus RDS, Bilder aus S3, Footer zeigt die Versionen beider Repos.
+
+![App live auf AWS](docs/screenshots/01-app-live-aws-v1.0.0.jpg)
+
+### Workflows (GitHub Actions)
+| Backend `v1.0.0`: build → Podman-Image → ECR → ECS | Backend: Smoke-Test nach dem Deployment |
+|---|---|
+| ![Backend Workflow](docs/screenshots/02-backend-workflow-v1.0.0.jpg) | ![Deploy verifiziert](docs/screenshots/03-backend-deploy-verifiziert.jpg) |
+| **Frontend: lint/test/build → ECR → ECS** | **Compose-Smoke-Test (Podman, lokales Gesamtsystem)** |
+| ![Frontend Workflow](docs/screenshots/04-frontend-workflow.jpg) | ![Compose CI](docs/screenshots/11-compose-smoke-test-ci.jpg) |
+
+### Amazon ECR – Image-Tags aus Git-Tags
+| Backend (`1.0.0`, `1.0`, `latest`, `sha-…`, `main`) | Frontend |
+|---|---|
+| ![ECR Backend](docs/screenshots/05a-ecr-backend-tags.jpg) | ![ECR Frontend](docs/screenshots/05b-ecr-frontend-tags.jpg) |
+
+### Amazon ECS – zwei Fargate-Services
+![ECS Services](docs/screenshots/06-ecs-cluster-services.jpg)
+
+### Amazon RDS – MariaDB
+![RDS](docs/screenshots/07-rds-instanz.jpg)
+
+### Amazon S3 – Bilder und Bucket-Policy
+| Objekte unter `trips/` | Bucket-Policy (nur TLS, nur LabRole/voclabs), Block Public Access |
+|---|---|
+| ![S3 Objekte](docs/screenshots/08-s3-bucket-objekte.jpg) | ![S3 Policy](docs/screenshots/08b-s3-bucket-policy.jpg) |
+
+### IAM Least Privilege – Nachweis (`./infra/verify.sh --iam`)
+Ein ECS-Task mit der LabRole nimmt die Session Policy an: erlaubte Aktionen funktionieren, alles andere wird verweigert.
+
+![Least Privilege](docs/screenshots/09-least-privilege-nachweis.png)
+
+### Commits (individuelle Lösung)
+| Backend | Frontend |
+|---|---|
+| ![Commits Backend](docs/screenshots/10a-commits-backend.jpg) | ![Commits Frontend](docs/screenshots/10b-commits-frontend.jpg) |
+
+### Lokale Entwicklung mit Podman
+![Lokal mit Podman](docs/screenshots/12-lokal-podman-app.jpg)
+
+### Probleme und Lösungen (Lessons Learned)
+
+| Problem | Ursache | Lösung |
+|---|---|---|
+| `CreateCluster`: *Unable to assume the service linked role* | erster ECS-Cluster im Account, Service-Linked-Role entsteht erst | Retry-Schleife in `provision.sh` |
+| Backend startet mit Profil `s3` nicht | Spring fand mehrere Konstruktoren in `S3ImageStorage` | `@Autowired` + Kontext-Test `S3ProfileContextTest` (beim lokalen Podman-Test entdeckt) |
+| MinIO-Images nicht mehr abrufbar | MinIO verteilt keine freien Images mehr | lokaler S3-Ersatz Adobe S3Mock |
+| ALB 503 nach erstem Deploy | Services mit `desiredCount 0` angelegt | `desired-count: 1` im Deploy-Schritt |
+| `Connections using insecure transport are prohibited` | RDS MariaDB erzwingt TLS | `sslMode=verify-full` gegen das RDS-CA-Bundle im Image |
+| Version „1-start-13-g…“ | `git describe` fand den Lehrer-Tag `v1-start` | nur SemVer-Tags `v*.*.*` zählen |
+| *The security token included in the request is invalid* | Session-Token beim Kopieren abgeschnitten | Secret neu gesetzt; Pipeline meldet den Fall mit klarer Fehlermeldung |
+| Footer „Backend nicht erreichbar“ | Actuator hat eigenes CORS-Mapping | `management.endpoints.web.cors.*` |
+
 
 ---
 
