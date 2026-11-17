@@ -13,6 +13,8 @@ else echo "podman-compose fehlt: pip install podman-compose" >&2; exit 1; fi
 [ -f .env ] || { cp .env.example .env; echo ".env aus .env.example erstellt"; }
 set -a; source .env; set +a
 
+# Docker-Image-Format, damit der HEALTHCHECK aus dem Dockerfile erhalten bleibt (OCI kennt keinen)
+export BUILDAH_FORMAT=docker
 BUILD=(--build); [ "${1:-}" = "--no-build" ] && BUILD=()
 "${COMPOSE[@]}" up -d "${BUILD[@]}"
 
