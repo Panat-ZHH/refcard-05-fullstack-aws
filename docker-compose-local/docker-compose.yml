@@ -1,12 +1,12 @@
 # =============================================================================
-# RefCard05 - Lokale Entwicklung mit Podman: Frontend + Backend + MariaDB + S3 (MinIO)
+# RefCard05 - Lokale Entwicklung mit Podman: Frontend + Backend + MariaDB + S3 (S3Mock)
 #
 #   ./start.sh                       # .env anlegen, bauen, starten, warten bis alles healthy ist
 #   (manuell: cp .env.example .env && podman-compose up -d --build)
 #
 #   Frontend:    http://localhost:3000
 #   Backend:     http://localhost:8080/v1/trips   (Health: /actuator/health)
-#   MinIO (S3):  http://localhost:9001            (Console)
+#   S3 (Mock):   http://localhost:9090            (S3-API, z. B. http://localhost:9090/biztrips-images-local)
 #   phpMyAdmin:  http://localhost:8082            (nur mit: podman-compose --profile tools up -d)
 #
 # Erwartete Ordnerstruktur (alle drei Repos nebeneinander klonen):
@@ -39,42 +39,25 @@ services:
       start_period: 20s
     restart: unless-stopped
 
-  # S3-kompatibler Object Storage: gleicher Code-Pfad (S3ImageStorage) wie auf AWS, nur anderer Endpoint
-  minio:
-    image: docker.io/minio/minio:latest
-    command: server /data --console-address ":9001"
+  # S3-kompatibler Object Storage (Adobe S3Mock): gleicher Code-Pfad (S3ImageStorage) wie auf AWS,
+  # nur anderer Endpoint. MinIO verteilt keine freien Container-Images mehr -> S3Mock.
+  s3:
+    image: docker.io/adobe/s3mock:latest
     environment:
-      MINIO_ROOT_USER: ${S3_ACCESS_KEY}
-      MINIO_ROOT_PASSWORD: ${S3_SECRET_KEY:?S3_SECRET_KEY in .env setzen}
+      COM_ADOBE_TESTING_S3MOCK_STORE_INITIAL_BUCKETS: ${S3_BUCKET}
+      COM_ADOBE_TESTING_S3MOCK_STORE_ROOT: /s3mockroot
+      COM_ADOBE_TESTING_S3MOCK_STORE_RETAIN_FILES_ON_EXIT: "true"
     ports:
-      - "9000:9000"
-      - "9001:9001"
+      - "9090:9090"
     volumes:
-      - minio-data:/data
+      - s3-data:/s3mockroot
     healthcheck:
-      test: ["CMD", "mc", "ready", "local"]
+      # Image hat weder curl noch wget -> TCP-Check ueber bash
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/9090"]
       interval: 5s
-      timeout: 5s
+      timeout: 3s
       retries: 20
     restart: unless-stopped
-
-  # einmaliger Job: Bucket anlegen (privat), danach beendet sich der Container
-  minio-init:
-    image: docker.io/minio/mc:latest
-    depends_on:
-      minio:
-        condition: service_healthy
-    environment:
-      S3_ACCESS_KEY: ${S3_ACCESS_KEY}
-      S3_SECRET_KEY: ${S3_SECRET_KEY}
-      S3_BUCKET: ${S3_BUCKET}
-    entrypoint: >
-      /bin/sh -c "
-      mc alias set local http://minio:9000 $$S3_ACCESS_KEY $$S3_SECRET_KEY &&
-      mc mb --ignore-existing local/$$S3_BUCKET &&
-      mc anonymous set none local/$$S3_BUCKET &&
-      echo 'Bucket bereit: '$$S3_BUCKET"
-    restart: "no"
 
   backend:
     build:
@@ -85,8 +68,8 @@ services:
     depends_on:
       mariadb:
         condition: service_healthy
-      minio-init:
-        condition: service_completed_successfully
+      s3:
+        condition: service_healthy
     environment:
       SPRING_PROFILES_ACTIVE: mariadb,s3
       DB_HOST: mariadb
@@ -95,10 +78,10 @@ services:
       DB_USER: ${DB_USER}
       DB_PASSWORD: ${DB_PASSWORD}
       S3_BUCKET: ${S3_BUCKET}
-      S3_ENDPOINT: http://minio:9000
+      S3_ENDPOINT: http://s3:9090
       S3_PATH_STYLE: "true"
       AWS_REGION: us-east-1
-      # nur fuer MinIO (lokal) - auf AWS kommen die Rechte aus der ECS-Task-Rolle
+      # nur fuer den lokalen S3-Ersatz (beliebige Werte) - auf AWS kommen die Rechte aus der ECS-Task-Rolle
       AWS_ACCESS_KEY_ID: ${S3_ACCESS_KEY}
       AWS_SECRET_ACCESS_KEY: ${S3_SECRET_KEY}
       CORS_ALLOWED_ORIGINS: http://localhost:${FRONTEND_PORT:-3000}
@@ -145,4 +128,4 @@ services:
 
 volumes:
   mariadb-data:
-  minio-data:
+  s3-data:

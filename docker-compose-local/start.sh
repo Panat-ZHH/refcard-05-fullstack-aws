@@ -42,6 +42,6 @@ cat <<OUT
 Frontend:  http://localhost:${FRONTEND_PORT:-3000}
 Backend:   http://localhost:8080/v1/trips
 Health:    http://localhost:8080/actuator/health
-MinIO:     http://localhost:9001   (Login: S3_ACCESS_KEY / S3_SECRET_KEY aus .env)
+S3 (Mock): http://localhost:9090/${S3_BUCKET}
 Stoppen:   ${COMPOSE[*]} down      (Daten loeschen: ${COMPOSE[*]} down -v)
 OUT
