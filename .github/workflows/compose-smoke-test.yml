@@ -1,0 +1,45 @@
+# Prueft, dass das lokale Gesamtsystem (docker-compose-local) wirklich startet:
+# Frontend + Backend + MariaDB + MinIO bauen, starten, gesund melden und End-to-End testen.
+name: Compose Smoke-Test (lokale Entwicklung)
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 6 * * 1'   # woechentlich: faengt Breaking Changes in FE/BE-Repos ab
+
+jobs:
+  compose:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: docker-compose-local
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Gesamtsystem starten (wie ein Teammitglied es tun wuerde)
+        run: ./start.sh
+
+      - name: End-to-End-Checks
+        run: |
+          set -x
+          curl -fsS http://localhost:8080/actuator/health | tee health.json | jq .
+          jq -e '.status == "UP" and .components.db.status == "UP" and .components.imageStorage.status == "UP"' health.json
+          test "$(curl -fsS http://localhost:8080/v1/trips | jq length)" -ge 3
+          curl -fsS -o img.jpg -w '%{content_type}\n' http://localhost:8080/v1/trips/1/image | grep image/jpeg
+          curl -fsS http://localhost:8080/v1/images | jq -e '.storage | startswith("s3://")'
+          # Upload in den (MinIO-)Bucket und wieder lesen
+          curl -fsS -X PUT -F file=@img.jpg http://localhost:8080/v1/trips/2/image | jq -e '.key == "trips/2"'
+          curl -fsS http://localhost:3000/ | grep -q '<div id="root">'
+          curl -fsS http://localhost:3000/version.json | jq -e '.apiBaseUrl == "http://localhost:8080/"'
+          curl -fsS -H 'Origin: http://localhost:3000' -I http://localhost:8080/v1/trips | grep -i 'access-control-allow-origin: http://localhost:3000'
+
+      - name: Logs bei Fehler
+        if: failure()
+        run: docker compose logs --no-color --tail 200
+
+      - name: Aufraeumen
+        if: always()
+        run: docker compose down -v
