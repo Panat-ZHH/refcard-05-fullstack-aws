@@ -35,7 +35,7 @@ done
 
 # --- 2. S3-Bucket fuer Bilder ----------------------------------------------------------------
 log "S3-Bucket $BUCKET"
-aws s3api head-bucket --bucket "$BUCKET" 2>/dev/null || aws s3api create-bucket --bucket "$BUCKET" >/dev/null
+aws s3api head-bucket --bucket "$BUCKET" >/dev/null 2>&1 || aws s3api create-bucket --bucket "$BUCKET" >/dev/null
 aws s3api put-public-access-block --bucket "$BUCKET" --public-access-block-configuration \
   BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true
 aws s3api put-bucket-encryption --bucket "$BUCKET" --server-side-encryption-configuration \
