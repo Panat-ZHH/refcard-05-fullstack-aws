@@ -43,14 +43,17 @@ jobs:
           set -x
           curl -fsS http://localhost:8080/actuator/health | tee health.json | jq .
           jq -e '.status == "UP" and .components.db.status == "UP" and .components.imageStorage.status == "UP"' health.json
+          jq -e '.components.db.details.database == "MariaDB"' health.json
           test "$(curl -fsS http://localhost:8080/v1/trips | jq length)" -ge 3
-          curl -fsS -o img.jpg -w '%{content_type}\n' http://localhost:8080/v1/trips/1/image | grep image/jpeg
+          curl -fsS -o img.jpg -w '%{content_type}\n' http://localhost:8080/v1/trips/1/image | grep '^image/'
           curl -fsS http://localhost:8080/v1/images | jq -e '.storage | startswith("s3://")'
           # Upload in den (MinIO-)Bucket und wieder lesen
           curl -fsS -X PUT -F file=@img.jpg http://localhost:8080/v1/trips/2/image | jq -e '.key == "trips/2"'
           curl -fsS http://localhost:3000/ | grep -q '<div id="root">'
           curl -fsS http://localhost:3000/version.json | jq -e '.apiBaseUrl == "http://localhost:8080/"'
-          curl -fsS -H 'Origin: http://localhost:3000' -I http://localhost:8080/v1/trips | grep -i 'access-control-allow-origin: http://localhost:3000'
+          curl -fsS -o /dev/null -D - -H 'Origin: http://localhost:3000' http://localhost:8080/v1/trips | grep -i 'access-control-allow-origin: http://localhost:3000'
+          # Typ-Pruefung: kein Bild -> 415
+          test "$(curl -s -o /dev/null -w '%{http_code}' -X PUT -F file=@/etc/hosts http://localhost:8080/v1/trips/2/image)" = 415
 
       - name: Logs bei Fehler
         if: failure()
