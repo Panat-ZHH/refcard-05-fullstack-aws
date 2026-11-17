@@ -1,23 +1,27 @@
 # =============================================================================
-# RefCard05 - Lokale Entwicklung: Frontend + Backend + MariaDB + S3 (MinIO)
+# RefCard05 - Lokale Entwicklung mit Podman: Frontend + Backend + MariaDB + S3 (MinIO)
 #
-#   cp .env.example .env      # einmalig, Werte bei Bedarf anpassen
-#   docker compose up --build # alles bauen und starten
+#   ./start.sh                       # .env anlegen, bauen, starten, warten bis alles healthy ist
+#   (manuell: cp .env.example .env && podman-compose up -d --build)
 #
 #   Frontend:    http://localhost:3000
 #   Backend:     http://localhost:8080/v1/trips   (Health: /actuator/health)
 #   MinIO (S3):  http://localhost:9001            (Console)
-#   phpMyAdmin:  http://localhost:8082            (nur mit: docker compose --profile tools up)
+#   phpMyAdmin:  http://localhost:8082            (nur mit: podman-compose --profile tools up -d)
 #
-# Die Images werden standardmaessig direkt aus den GitHub-Repos gebaut (kein Klonen noetig).
-# Fuer Entwicklung an lokalen Checkouts FRONTEND_CONTEXT / BACKEND_CONTEXT in .env auf die Pfade setzen.
-# Mit den Images aus Amazon ECR starten: siehe docker-compose.ecr.yml
+# Erwartete Ordnerstruktur (alle drei Repos nebeneinander klonen):
+#   workspace/refcard-05-fe-react-vite
+#   workspace/refcard-05-be-springboot-businesstrips
+#   workspace/refcard-05-fullstack-aws/docker-compose-local   <- hier
+# Andere Pfade: FRONTEND_CONTEXT / BACKEND_CONTEXT in .env setzen.
+# Images aus Amazon ECR statt lokal bauen: ./use-ecr-images.sh <version>
+# Die Datei folgt der Compose-Spezifikation -> funktioniert auch mit `podman compose` / Docker Compose.
 # =============================================================================
 name: biztrips
 
 services:
   mariadb:
-    image: mariadb:11.4
+    image: docker.io/library/mariadb:11.4
     environment:
       MARIADB_DATABASE: ${DB_NAME}
       MARIADB_USER: ${DB_USER}
@@ -37,7 +41,7 @@ services:
 
   # S3-kompatibler Object Storage: gleicher Code-Pfad (S3ImageStorage) wie auf AWS, nur anderer Endpoint
   minio:
-    image: minio/minio:latest
+    image: docker.io/minio/minio:latest
     command: server /data --console-address ":9001"
     environment:
       MINIO_ROOT_USER: ${S3_ACCESS_KEY}
@@ -56,7 +60,7 @@ services:
 
   # einmaliger Job: Bucket anlegen (privat), danach beendet sich der Container
   minio-init:
-    image: minio/mc:latest
+    image: docker.io/minio/mc:latest
     depends_on:
       minio:
         condition: service_healthy
@@ -74,10 +78,10 @@ services:
 
   backend:
     build:
-      context: ${BACKEND_CONTEXT:-https://github.com/Panat-ZHH/refcard-05-be-springboot-businesstrips.git#main}
+      context: ${BACKEND_CONTEXT:-../../refcard-05-be-springboot-businesstrips}
       args:
         VERSION: local
-    image: biztrips-backend:local
+    image: localhost/biztrips-backend:local
     depends_on:
       mariadb:
         condition: service_healthy
@@ -110,21 +114,26 @@ services:
 
   frontend:
     build:
-      context: ${FRONTEND_CONTEXT:-https://github.com/Panat-ZHH/refcard-05-fe-react-vite.git#main}
+      context: ${FRONTEND_CONTEXT:-../../refcard-05-fe-react-vite}
       args:
         # der Browser ruft das Backend direkt auf -> Host-Port
         VITE_API_BASE_URL: http://localhost:8080/
         VITE_APP_VERSION: local
-    image: biztrips-frontend:local
+    image: localhost/biztrips-frontend:local
     depends_on:
       backend:
         condition: service_healthy
     ports:
       - "${FRONTEND_PORT:-3000}:8080"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8080/healthz || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 6
     restart: unless-stopped
 
   phpmyadmin:
-    image: phpmyadmin:5
+    image: docker.io/library/phpmyadmin:5
     profiles: ["tools"]
     depends_on:
       mariadb:
