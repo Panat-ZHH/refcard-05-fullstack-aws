@@ -142,7 +142,12 @@ ok "http://$ALB_DNS  (/v1/*, /actuator/* -> Backend, Rest -> Frontend)"
 # --- 6. ECS-Cluster, Log-Gruppen, Services --------------------------------------------------
 log "ECS-Cluster $CLUSTER"
 if [ "$(aws ecs describe-clusters --clusters "$CLUSTER" --query 'clusters[0].status' --output text)" != "ACTIVE" ]; then
-  aws ecs create-cluster --cluster-name "$CLUSTER" --capacity-providers FARGATE >/dev/null
+  # Beim allerersten ECS-Cluster im Account legt AWS die Service-Linked-Role erst an -> kurz warten und erneut versuchen
+  for attempt in 1 2 3 4 5; do
+    aws ecs create-cluster --cluster-name "$CLUSTER" >/dev/null 2>/tmp/ecs-err && break
+    grep -q "service linked role" /tmp/ecs-err || { cat /tmp/ecs-err; exit 1; }
+    warn "ECS Service-Linked-Role noch nicht bereit, Versuch $attempt/5 ..."; sleep 15
+  done
 fi
 # Container Insights: CPU/Memory/Task-Metriken in CloudWatch (Monitoring der Deployments)
 aws ecs update-cluster-settings --cluster "$CLUSTER" --settings name=containerInsights,value=enabled >/dev/null 2>&1 \
