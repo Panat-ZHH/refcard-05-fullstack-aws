@@ -1,0 +1,14 @@
+# Variante: fertige Images aus Amazon ECR statt lokal bauen (z. B. um ein Release lokal zu testen)
+#   aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin $ECR_REGISTRY
+#   docker compose -f docker-compose.yml -f docker-compose.ecr.yml up
+# Achtung: das Frontend-Image aus ECR enthaelt die Backend-URL des ALB (VITE_API_BASE_URL wird beim Build eingebettet),
+# lokal bauen bleibt deshalb der Normalfall.
+services:
+  backend:
+    build: !reset null
+    image: ${ECR_REGISTRY:?ECR_REGISTRY setzen, z. B. 123456789012.dkr.ecr.us-east-1.amazonaws.com}/biztrips-backend:${BACKEND_TAG:-latest}
+    pull_policy: always
+  frontend:
+    build: !reset null
+    image: ${ECR_REGISTRY}/biztrips-frontend:${FRONTEND_TAG:-latest}
+    pull_policy: always

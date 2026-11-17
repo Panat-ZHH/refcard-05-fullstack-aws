@@ -1,0 +1,139 @@
+# =============================================================================
+# RefCard05 - Lokale Entwicklung: Frontend + Backend + MariaDB + S3 (MinIO)
+#
+#   cp .env.example .env      # einmalig, Werte bei Bedarf anpassen
+#   docker compose up --build # alles bauen und starten
+#
+#   Frontend:    http://localhost:3000
+#   Backend:     http://localhost:8080/v1/trips   (Health: /actuator/health)
+#   MinIO (S3):  http://localhost:9001            (Console)
+#   phpMyAdmin:  http://localhost:8082            (nur mit: docker compose --profile tools up)
+#
+# Die Images werden standardmaessig direkt aus den GitHub-Repos gebaut (kein Klonen noetig).
+# Fuer Entwicklung an lokalen Checkouts FRONTEND_CONTEXT / BACKEND_CONTEXT in .env auf die Pfade setzen.
+# Mit den Images aus Amazon ECR starten: siehe docker-compose.ecr.yml
+# =============================================================================
+name: biztrips
+
+services:
+  mariadb:
+    image: mariadb:11.4
+    environment:
+      MARIADB_DATABASE: ${DB_NAME}
+      MARIADB_USER: ${DB_USER}
+      MARIADB_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD in .env setzen (cp .env.example .env)}
+      MARIADB_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:?DB_ROOT_PASSWORD in .env setzen}
+    ports:
+      - "${DB_PORT_HOST:-3306}:3306"
+    volumes:
+      - mariadb-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
+    restart: unless-stopped
+
+  # S3-kompatibler Object Storage: gleicher Code-Pfad (S3ImageStorage) wie auf AWS, nur anderer Endpoint
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${S3_ACCESS_KEY}
+      MINIO_ROOT_PASSWORD: ${S3_SECRET_KEY:?S3_SECRET_KEY in .env setzen}
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio-data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
+  # einmaliger Job: Bucket anlegen (privat), danach beendet sich der Container
+  minio-init:
+    image: minio/mc:latest
+    depends_on:
+      minio:
+        condition: service_healthy
+    environment:
+      S3_ACCESS_KEY: ${S3_ACCESS_KEY}
+      S3_SECRET_KEY: ${S3_SECRET_KEY}
+      S3_BUCKET: ${S3_BUCKET}
+    entrypoint: >
+      /bin/sh -c "
+      mc alias set local http://minio:9000 $$S3_ACCESS_KEY $$S3_SECRET_KEY &&
+      mc mb --ignore-existing local/$$S3_BUCKET &&
+      mc anonymous set none local/$$S3_BUCKET &&
+      echo 'Bucket bereit: '$$S3_BUCKET"
+    restart: "no"
+
+  backend:
+    build:
+      context: ${BACKEND_CONTEXT:-https://github.com/Panat-ZHH/refcard-05-be-springboot-businesstrips.git#main}
+      args:
+        VERSION: local
+    image: biztrips-backend:local
+    depends_on:
+      mariadb:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+    environment:
+      SPRING_PROFILES_ACTIVE: mariadb,s3
+      DB_HOST: mariadb
+      DB_PORT: "3306"
+      DB_NAME: ${DB_NAME}
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
+      S3_BUCKET: ${S3_BUCKET}
+      S3_ENDPOINT: http://minio:9000
+      S3_PATH_STYLE: "true"
+      AWS_REGION: us-east-1
+      # nur fuer MinIO (lokal) - auf AWS kommen die Rechte aus der ECS-Task-Rolle
+      AWS_ACCESS_KEY_ID: ${S3_ACCESS_KEY}
+      AWS_SECRET_ACCESS_KEY: ${S3_SECRET_KEY}
+      CORS_ALLOWED_ORIGINS: http://localhost:${FRONTEND_PORT:-3000}
+    ports:
+      - "8080:8080"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/actuator/health/readiness || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 60s
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ${FRONTEND_CONTEXT:-https://github.com/Panat-ZHH/refcard-05-fe-react-vite.git#main}
+      args:
+        # der Browser ruft das Backend direkt auf -> Host-Port
+        VITE_API_BASE_URL: http://localhost:8080/
+        VITE_APP_VERSION: local
+    image: biztrips-frontend:local
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "${FRONTEND_PORT:-3000}:8080"
+    restart: unless-stopped
+
+  phpmyadmin:
+    image: phpmyadmin:5
+    profiles: ["tools"]
+    depends_on:
+      mariadb:
+        condition: service_healthy
+    environment:
+      PMA_HOST: mariadb
+    ports:
+      - "8082:80"
+
+volumes:
+  mariadb-data:
+  minio-data:
